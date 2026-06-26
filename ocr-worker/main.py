@@ -3,13 +3,19 @@ import json
 import time
 import easyocr
 import boto3
+import os
+from dotenv import load_dotenv
 
 QUEUE_NAME = "ocr_task_queue"
 NEXT_QUEUE = "llm_task_queue"
+load_dotenv()
+
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 
 s3_client = boto3.client(
     's3',
-    endpoint_url='http://localhost:1986',
+    endpoint_url='MINIO_ENDPOINT',
     aws_access_key_id='admin',
     aws_secret_access_key='password123'
 )
@@ -63,7 +69,7 @@ def process_and_forward(ch, method, properties, body):
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 def start_worker():
-    connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+    connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST))
     channel = connection.channel()
     
     # Ensure queue exists

@@ -1,12 +1,46 @@
 import json
 import ollama
-from typing import Optional
+from typing import Optional, Dict, Any
 
 class AgentBrain:
     def __init__(self, db_client):
-        self.db = db_client 
+        self.db = db_client
 
-    def infer_category_or_abort(self, merchant: str, user_specified_category: Optional[str]) -> Optional[str]:
+    def extract_receipt_metadata(self, raw_ocr_text: str) -> Optional[Dict[str, Any]]:
+        prompt = f"""
+        You are a precise data extraction engine. Analyze the following raw OCR text from a receipt and extract the structured information.
+        
+        --- RAW OCR TEXT ---
+        {raw_ocr_text}
+        --------------------
+
+        Extract exactly these four fields:
+        1. merchant: The name of the store or company (e.g., "East Repair Inc").
+        2. amount: The final total paid amount as a float number. Look closely at "Receipt Total", "Total", or the largest value. Do not include currency symbols ($).
+        3. date: The receipt date converted into YYYY-MM-DD format. If ambiguous, use the best match.
+        4. implied_category: Based on the descriptions or merchant, guess a logical expense category (e.g., "Transport", "Groceries", "Utilities", "Maintenance").
+
+        Respond ONLY with a valid JSON block matching this structure. Do not include markdown wraps like ```json.
+        {{
+            "merchant": string or null,
+            "amount": float or null,
+            "date": string or null,
+            "implied_category": string or null
+        }}
+        """
+        try:
+            response = ollama.chat(model='phi3', messages=[{'role': 'user', 'content': prompt}])
+            clean_content = response['message']['content'].strip()
+            # Safety cleanup if the model included markdown blocks despite instructions
+            if clean_content.startswith("```"):
+                clean_content = clean_content.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
+            
+            return json.loads(clean_content)
+        except Exception as e:
+            print(f"❌ Structural extraction failed: {e}")
+            return None
+
+    def infer_category_or_abort(self, merchant: str, user_specified_category: Optional[str], fallback_suggestion: Optional[str]) -> Optional[str]:
         if user_specified_category and user_specified_category.strip():
             return user_specified_category.strip()
 
@@ -14,14 +48,12 @@ class AgentBrain:
         history_str = json.dumps(history, ensure_ascii=False)
 
         prompt = f"""
-        You are a financial accounting agent. Your task is to categorize a purchase.
-        The user bought something from the merchant: "{merchant}".
-        The user did not specify a category.
-
-        Here is the historical transaction data from their database:
+        You are a financial accounting agent. Determine the absolute category for a transaction at merchant: "{merchant}".
+        The model suggested a guess of "{fallback_suggestion}".
+        
+        Historical ledger data for comparison:
         {history_str}
 
-        Based strictly on history, can you definitively match this merchant to a category?
         Respond ONLY with a valid JSON object matching this structure:
         {{
             "can_determine": true or false,
@@ -30,26 +62,29 @@ class AgentBrain:
         }}
         """
         try:
-            response = ollama.chat(model='phi3:mini', messages=[{'role': 'user', 'content': prompt}])
-            result = json.loads(response['message']['content'].strip())
+            response = ollama.chat(model='phi3', messages=[{'role': 'user', 'content': prompt}])
+            content = response['message']['content'].strip()
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
             
-            if result.get("can_determine"):
+            result = json.loads(content)
+            if result.get("can_determine") and result.get("category"):
                 return result.get("category")
         except Exception as e:
-            print(f"⚠️ Categorization parsing failed. Error: {e}")
+            print(f"⚠️ Categorization inference failed: {e}")
         
-        return None
+        # Fallback to the initial guess if history is empty or inconclusive
+        return fallback_suggestion if fallback_suggestion else None
 
     def answer_financial_question(self, user_question: str) -> str:
         history = self.db.get_all_expenses()
         history_str = json.dumps(history, ensure_ascii=False)
 
         prompt = f"""
-        You are a financial analyst looking at the user's expense database:
+        You are a financial analyst tracking expenses. Review the database ledger rows:
         {history_str}
 
-        Answer the following question accurately based ONLY on the data provided. 
-        If it involves math, calculate it step-by-step.
+        Answer this question accurately based only on data sums and dates inside the ledger.
         
         Question: {user_question}
         """
@@ -57,4 +92,4 @@ class AgentBrain:
             response = ollama.chat(model='phi3', messages=[{'role': 'user', 'content': prompt}])
             return response['message']['content']
         except Exception as e:
-            return f"Error executing financial query analysis: {str(e)}"
+            return f"Error executing analysis: {str(e)}"

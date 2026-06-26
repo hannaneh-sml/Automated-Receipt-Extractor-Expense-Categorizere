@@ -4,13 +4,11 @@ import time
 from dotenv import load_dotenv
 from supabase_client import SupabaseClient
 from agent_brain import AgentBrain
+import os
 
-# Load environment variables FIRST
 load_dotenv()
-
 QUEUE_NAME = "llm_task_queue"
 
-# Initialize our components
 db_client = SupabaseClient()
 brain = AgentBrain(db_client)
 
@@ -20,28 +18,38 @@ def process_agent_workflow(ch, method, properties, body):
     extracted_text = payload.get("extracted_text")
     user_prompt = payload.get("user_prompt")
     
-    print(f"\n⚡ [AGENT ENGINE] Processing task for Job: {job_id}")
+    print(f"\n⚡ [AGENT ENGINE] Ingesting Job: {job_id}")
 
-    # TODO: In a later step, we will have Phi-3 extract these variables from 'extracted_text'
-    # For now, we mock the extraction to test the database pipeline
-    merchant_detected = "Ofogh Koorosh" 
-    amount_detected = 185000.0
-    current_date = time.strftime("%Y-%m-%d")
-    
+    # Step 1: Run unstructured text extraction through Phi-3
+    metadata = brain.extract_receipt_metadata(extracted_text)
+    if not metadata or not metadata.get("amount"):
+        print("❌ [ABORTED] Phi-3 failed to safely isolate financial fields from raw text.")
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+        return
+
+    merchant = metadata.get("merchant", "Unknown Merchant")
+    amount = float(metadata.get("amount"))
+    date = metadata.get("date") or time.strftime("%Y-%m-%d")
+    implied_cat = metadata.get("implied_category")
+
+    print(f"🔍 Extracted Data -> Merchant: {merchant} | Amount: {amount} | Date: {date}")
+
+    # Step 2: Determine categorization
     user_cat = None
     if "groceries" in user_prompt.lower(): user_cat = "Groceries"
     elif "transport" in user_prompt.lower(): user_cat = "Transport"
 
-    final_category = brain.infer_category_or_abort(merchant_detected, user_cat)
+    final_category = brain.infer_category_or_abort(merchant, user_cat, implied_cat)
     
     if final_category is None:
-        print(f"❌ [ABORTED] Could not classify expense for '{merchant_detected}'.")
+        print(f"❌ [ABORTED] Categorization remains completely ambiguous for '{merchant}'. Blocking record insertion.")
     else:
-        # Save to Supabase!
-        db_client.add_expense(current_date, merchant_detected, amount_detected, final_category)
+        # Step 3: Persist to cloud database
+        db_client.add_expense(date, merchant, amount, final_category)
     
-    if "how much" in user_prompt.lower() or "spent" in user_prompt.lower():
-        print("🔍 Executing database analysis...")
+    # Step 4: Execute RAG/Analytical query questions
+    if any(keyword in user_prompt.lower() for keyword in ["how much", "spent", "total", "calculate"]):
+        print("📊 Running transactional dynamic lookup query...")
         answer = brain.answer_financial_question(user_prompt)
         print(f"\n💬 [AI Response]:\n{answer}\n")
 

@@ -6,11 +6,14 @@ from .services.queue_publisher import publish_job
 from contextlib import asynccontextmanager
 from botocore.exceptions import ClientError
 
+load_dotenv()
+
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 app = FastAPI(title="Persian Finance API Gateway")
 
 s3_client = boto3.client(
     's3',
-    endpoint_url='http://localhost:1986',
+    endpoint_url='MINIO_ENDPOINT',
     aws_access_key_id='admin',
     aws_secret_access_key='password123'
 )
