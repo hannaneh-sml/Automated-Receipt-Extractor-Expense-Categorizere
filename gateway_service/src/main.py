@@ -3,15 +3,33 @@ from fastapi.responses import JSONResponse
 import uuid
 import boto3
 from .services.queue_publisher import publish_job
+from contextlib import asynccontextmanager
+from botocore.exceptions import ClientError
 
 app = FastAPI(title="Persian Finance API Gateway")
 
 s3_client = boto3.client(
     's3',
-    endpoint_url='http://localhost:9000',
+    endpoint_url='http://localhost:1986',
     aws_access_key_id='admin',
     aws_secret_access_key='password123'
 )
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        s3_client.head_bucket(Bucket='receipts')
+        print("✅ MinIO Bucket 'receipts' found.")
+    except ClientError:
+        print("⚠️ Bucket 'receipts' not found. Creating it now...")
+        s3_client.create_bucket(Bucket='receipts')
+        print("🪣 Successfully created 'receipts' bucket!")
+        
+    yield 
+    
+    print("🛑 Gateway shutting down...")
+
+app = FastAPI(title="Persian Finance API Gateway", lifespan=lifespan)
 
 @app.post("/api/v1/process-receipt")
 async def process_receipt(file: UploadFile = File(...), user_prompt: str = Form(...)):

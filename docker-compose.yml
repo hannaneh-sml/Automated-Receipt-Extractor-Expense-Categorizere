@@ -1,17 +1,18 @@
 services:
-  redis-broker:
-    image: redis:7-alpine
-    container_name: receipt-redis-broker
+  rabbitmq-broker:
+    image: rabbitmq:3-management-alpine
+    container_name: receipt-rabbitmq-broker
     ports:
-      - "6379:6379"
+      - "5672:5672"   
+      - "15672:15672" 
     restart: always
 
   minio-storage:
     image: minio/minio
     container_name: receipt-object-storage
     ports:
-      - "9000:9000"   
-      - "9001:9001"  
+      - "9000"
+      - "9001"
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: password123

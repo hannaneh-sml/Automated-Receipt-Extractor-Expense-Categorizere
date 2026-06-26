@@ -1,16 +1,16 @@
-import redis
+import pika
 import json
 import time
 import easyocr
 import boto3
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0, 
-                           decode_responses=True, health_check_interval=30)
 QUEUE_NAME = "ocr_task_queue"
+NEXT_QUEUE = "llm_task_queue"
 
+# Initialize MinIO Client
 s3_client = boto3.client(
     's3',
-    endpoint_url='http://localhost:9000',
+    endpoint_url='http://localhost:1986',
     aws_access_key_id='admin',
     aws_secret_access_key='password123'
 )
@@ -19,9 +19,11 @@ print("⏳ Initializing EasyOCR Engine...")
 reader = easyocr.Reader(['fa', 'en']) 
 print("✅ EasyOCR Engine Ready!")
 
-def process_receipt(payload):
+def process_and_forward(ch, method, properties, body):
+    payload = json.loads(body)
     job_id = payload.get("job_id")
     object_name = payload.get("object_name") 
+    user_prompt = payload.get("user_prompt")
     
     print(f"\n⚙️ [WORKER] Processing Job: {job_id}")
     
@@ -38,23 +40,42 @@ def process_receipt(payload):
         
         execution_time = round(time.time() - start_time, 2)
         print(f"✅ OCR Finished in {execution_time}s!")
-        print(f"\n--- Extracted Text ---\n{extracted_text}\n----------------------")
+        print(f"--- Extracted Text ---\n{extracted_text}\n----------------------")
+        
+        llm_payload = {
+            "job_id": job_id,
+            "extracted_text": extracted_text,
+            "user_prompt": user_prompt
+        }
+        
+        ch.queue_declare(queue=NEXT_QUEUE, durable=True)
+        ch.basic_publish(
+            exchange='',
+            routing_key=NEXT_QUEUE,
+            body=json.dumps(llm_payload),
+            properties=pika.BasicProperties(delivery_mode=2)
+        )
+        print(f"➡️ Successfully pushed data to '{NEXT_QUEUE}' for Service C!")
+        
+        ch.basic_ack(delivery_tag=method.delivery_tag)
         
     except Exception as e:
         print(f"❌ Error during execution: {e}")
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 def start_worker():
-    print(f"🎧 OCR Worker started. Listening to Redis...")
-    while True:
-        try:
-            result = redis_client.brpop(QUEUE_NAME, timeout = 5)
-            if result:
-                _, message = result
-                payload = json.loads(message)
-                process_receipt(payload)
-        except Exception as e:
-            print(f"⚠️ Worker Error: {e}")
-            time.sleep(5)
+    connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+    channel = connection.channel()
+    
+    # Ensure queue exists
+    channel.queue_declare(queue=QUEUE_NAME, durable=True)
+    
+    channel.basic_qos(prefetch_count=1)
+    
+    channel.basic_consume(queue=QUEUE_NAME, on_message_callback=process_and_forward)
+    
+    print(f"🎧 RabbitMQ Worker started. Listening to '{QUEUE_NAME}'...")
+    channel.start_consuming()
 
 if __name__ == "__main__":
     start_worker()
