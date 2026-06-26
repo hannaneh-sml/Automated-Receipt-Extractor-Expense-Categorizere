@@ -1,38 +1,57 @@
 import redis
 import json
 import time
+import easyocr
+import boto3
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host='localhost', port=6379, db=0, 
+                           decode_responses=True, health_check_interval=30)
 QUEUE_NAME = "ocr_task_queue"
 
+s3_client = boto3.client(
+    's3',
+    endpoint_url='http://localhost:9000',
+    aws_access_key_id='admin',
+    aws_secret_access_key='password123'
+)
+
+print("⏳ Initializing EasyOCR Engine...")
+reader = easyocr.Reader(['fa', 'en']) 
+print("✅ EasyOCR Engine Ready!")
+
 def process_receipt(payload):
-    #TBD with actual model
     job_id = payload.get("job_id")
-    filename = payload.get("filename")
+    object_name = payload.get("object_name") 
     
     print(f"\n⚙️ [WORKER] Processing Job: {job_id}")
-    print(f"📄 Target File: {filename}")
     
-    time.sleep(3) 
-    
-    mock_extracted_text = "فروشگاه افق کوروش - مبلغ: 150,000 تومان - تاریخ: 1402/08/15"
-    print(f"🔍 [WORKER] OCR Extraction Complete: {mock_extracted_text}")
-    print("-" * 50)
+    try:
+        start_time = time.time()
+        
+        print(f"☁️ Downloading {object_name} from MinIO...")
+        response = s3_client.get_object(Bucket='receipts', Key=object_name)
+        image_bytes = response['Body'].read()
+        
+        print("🔍 Running OCR AI...")
+        results = reader.readtext(image_bytes, detail=0)
+        extracted_text = "\n".join(results)
+        
+        execution_time = round(time.time() - start_time, 2)
+        print(f"✅ OCR Finished in {execution_time}s!")
+        print(f"\n--- Extracted Text ---\n{extracted_text}\n----------------------")
+        
+    except Exception as e:
+        print(f"❌ Error during execution: {e}")
 
 def start_worker():
-    print(f"🎧 OCR Worker started. Listening to Redis queue '{QUEUE_NAME}'...")
-    
+    print(f"🎧 OCR Worker started. Listening to Redis...")
     while True:
         try:
-            result = redis_client.brpop(QUEUE_NAME, 0)
-            
+            result = redis_client.brpop(QUEUE_NAME, timeout = 5)
             if result:
-                queue_name, message = result
+                _, message = result
                 payload = json.loads(message)
                 process_receipt(payload)
-                
-        except json.JSONDecodeError:
-            print("❌ Failed to decode message payload.")
         except Exception as e:
             print(f"⚠️ Worker Error: {e}")
             time.sleep(5)
