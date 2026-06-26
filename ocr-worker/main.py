@@ -7,7 +7,6 @@ import boto3
 QUEUE_NAME = "ocr_task_queue"
 NEXT_QUEUE = "llm_task_queue"
 
-# Initialize MinIO Client
 s3_client = boto3.client(
     's3',
     endpoint_url='http://localhost:1986',
