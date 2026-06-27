@@ -42,12 +42,12 @@ class AgentBrain:
                 
             except json.JSONDecodeError:
                 print(f"❌ Parsing Error: Model returned invalid JSON. Raw output:\n{clean_content}")
-                return None # Don't retry on bad JSON, just fail gracefully
+                return None 
                 
             except Exception as e:
                 print(f"⚠️ Network/CPU bottleneck (Attempt {attempt + 1}/{max_retries}): Ollama unresponsive. {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(5) # Wait 5 seconds and try knocking on Ollama's door again
+                    time.sleep(5) 
                 else:
                     print("❌ [ABORTED] Ollama failed to recover after multiple attempts.")
                     return None
@@ -74,7 +74,7 @@ class AgentBrain:
         }}
         """
         try:
-            response = ollama.chat(model='phi3', messages=[{'role': 'user', 'content': prompt}])
+            response = ollama.chat(model='phi3:mini', messages=[{'role': 'user', 'content': prompt}])
             content = response['message']['content'].strip()
             if content.startswith("```"):
                 content = content.split("\n", 1)[1].rsplit("\n", 1)[0].strip()

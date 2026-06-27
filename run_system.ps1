@@ -4,7 +4,7 @@ docker-compose up -d
 
 # Verify Ollama Background App is Awake
 Write-Host "Checking local AI Model Engine..." -ForegroundColor Cyan
-# Start-Process "ollama" -ArgumentList "run phi3" -WindowStyle Minimized
+Start-Process "ollama" -ArgumentList "run phi3" -WindowStyle Minimized
 
 # Wait for infrastructure dependencies to fully settle
 Start-Sleep -Seconds 10

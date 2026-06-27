@@ -1,19 +1,15 @@
-import os
+from config import settings
 from supabase import create_client, Client
-from dotenv import load_dotenv
 
-load_dotenv()
 
 class SupabaseClient:
     def __init__(self):
-        url: str = os.getenv("SUPABASE_URL")
-        key: str = os.getenv("SUPABASE_KEY")
         
-        if not url or not key:
+        if not settings.supabase_url or not settings.supabase_key:
             print("⚠️ Supabase credentials missing from .env! Running in Mock Mode.")
             self.supabase = None
         else:
-            self.supabase: Client = create_client(url, key)
+            self.supabase: Client = create_client(settings.supabase_url, settings.supabase_key)
 
     def get_all_expenses(self):
         """Fetches all rows from the expenses table."""
@@ -27,19 +23,22 @@ class SupabaseClient:
             print(f"❌ Supabase Read Error: {e}")
             return []
 
-    def add_expense(self, date: str, merchant: str, amount: float, category: str):
+    def add_expense(self, job_id: str, date: str, merchant: str, amount: float, category: str):
         if not self.supabase:
             print(f"💾 [MOCK MODE] Inserted row: {merchant} - {amount}")
             return True
         
         try:
             self.supabase.table("expenses").insert({
+                "job_id": job_id,
                 "date": date,
                 "merchant": merchant,
                 "amount": amount,
                 "category": category
             }).execute()
             print("📊 Successfully appended record to Supabase!")
+
+            
             return True
         except Exception as e:
             print(f"❌ Supabase Write Error: {e}")
