@@ -90,5 +90,12 @@ async def process_receipt(file: UploadFile = File(...), user_prompt: str = Form(
 async def get_job_status(job_id: str):
     if job_id not in live_jobs:
         raise HTTPException(status_code=404, detail="Job ID not found or expired.")
-        
+    current_status = live_jobs[job_id].get("status", "unknown")
+    
+    if current_status == "completed":
+        print(f"✅ Status check: Job {job_id} is COMPLETED. Returning data.")
+    elif current_status == "failed":
+        print(f"❌ Status check: Job {job_id} FAILED. Returning error.")
+    else:
+        print(f"⏳ Status check: Job {job_id} is still {current_status.upper()}.")
     return live_jobs[job_id]
