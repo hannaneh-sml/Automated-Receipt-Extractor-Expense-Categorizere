@@ -3,21 +3,16 @@ import json
 import time
 import easyocr
 import boto3
-import os
-from dotenv import load_dotenv
+from config import settings
 
 QUEUE_NAME = "ocr_task_queue"
 NEXT_QUEUE = "llm_task_queue"
-load_dotenv()
-
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 
 s3_client = boto3.client(
     's3',
-    endpoint_url='MINIO_ENDPOINT',
-    aws_access_key_id='admin',
-    aws_secret_access_key='password123'
+    endpoint_url=settings.minio_endpoint,
+    aws_access_key_id=settings.minio_access_key,
+    aws_secret_access_key=settings.minio_secret_key
 )
 
 print("⏳ Initializing EasyOCR Engine...")
@@ -69,7 +64,7 @@ def process_and_forward(ch, method, properties, body):
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 def start_worker():
-    connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST))
+    connection = pika.BlockingConnection(pika.ConnectionParameters(settings.rabbitmq_host))
     channel = connection.channel()
     
     # Ensure queue exists

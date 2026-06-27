@@ -1,12 +1,11 @@
 import pika
 import json
 import time
-from dotenv import load_dotenv
 from supabase_client import SupabaseClient
 from agent_brain import AgentBrain
-import os
+from config import settings
+import time
 
-load_dotenv()
 QUEUE_NAME = "llm_task_queue"
 
 db_client = SupabaseClient()
@@ -20,10 +19,12 @@ def process_agent_workflow(ch, method, properties, body):
     
     print(f"\n⚡ [AGENT ENGINE] Ingesting Job: {job_id}")
 
-    # Step 1: Run unstructured text extraction through Phi-3
+    print("⏳ Giving system CPU 5 seconds to recover from OCR...")
+    time.sleep(5)
+
     metadata = brain.extract_receipt_metadata(extracted_text)
     if not metadata or not metadata.get("amount"):
-        print("❌ [ABORTED] Phi-3 failed to safely isolate financial fields from raw text.")
+        print("❌ [ABORTED] Phi-3:mini failed to safely isolate financial fields from raw text.")
         ch.basic_ack(delivery_tag=method.delivery_tag)
         return
 
@@ -56,7 +57,7 @@ def process_agent_workflow(ch, method, properties, body):
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 def start_services():
-    connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+    connection = pika.BlockingConnection(pika.ConnectionParameters(settings.rabbitmq_host))
     channel = connection.channel()
     channel.queue_declare(queue=QUEUE_NAME, durable=True)
     channel.basic_qos(prefetch_count=1)

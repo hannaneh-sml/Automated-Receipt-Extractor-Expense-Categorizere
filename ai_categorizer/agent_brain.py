@@ -1,6 +1,7 @@
 import json
 import ollama
 from typing import Optional, Dict, Any
+import time
 
 class AgentBrain:
     def __init__(self, db_client):
@@ -28,17 +29,28 @@ class AgentBrain:
             "implied_category": string or null
         }}
         """
-        try:
-            response = ollama.chat(model='phi3', messages=[{'role': 'user', 'content': prompt}])
-            clean_content = response['message']['content'].strip()
-            # Safety cleanup if the model included markdown blocks despite instructions
-            if clean_content.startswith("```"):
-                clean_content = clean_content.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
-            
-            return json.loads(clean_content)
-        except Exception as e:
-            print(f"❌ Structural extraction failed: {e}")
-            return None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = ollama.chat(model='phi3:mini', messages=[{'role': 'user', 'content': prompt}])
+                clean_content = response['message']['content'].strip()
+                
+                if clean_content.startswith("```"):
+                    clean_content = clean_content.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
+                
+                return json.loads(clean_content)
+                
+            except json.JSONDecodeError:
+                print(f"❌ Parsing Error: Model returned invalid JSON. Raw output:\n{clean_content}")
+                return None # Don't retry on bad JSON, just fail gracefully
+                
+            except Exception as e:
+                print(f"⚠️ Network/CPU bottleneck (Attempt {attempt + 1}/{max_retries}): Ollama unresponsive. {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(5) # Wait 5 seconds and try knocking on Ollama's door again
+                else:
+                    print("❌ [ABORTED] Ollama failed to recover after multiple attempts.")
+                    return None
 
     def infer_category_or_abort(self, merchant: str, user_specified_category: Optional[str], fallback_suggestion: Optional[str]) -> Optional[str]:
         if user_specified_category and user_specified_category.strip():

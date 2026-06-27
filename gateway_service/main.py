@@ -2,20 +2,18 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 import uuid
 import boto3
-from .services.queue_publisher import publish_job
+from services.queue_publisher import publish_job
 from contextlib import asynccontextmanager
 from botocore.exceptions import ClientError
+from config import settings
 
-load_dotenv()
-
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 app = FastAPI(title="Persian Finance API Gateway")
 
 s3_client = boto3.client(
     's3',
-    endpoint_url='MINIO_ENDPOINT',
-    aws_access_key_id='admin',
-    aws_secret_access_key='password123'
+    endpoint_url=settings.minio_endpoint,
+    aws_access_key_id=settings.minio_access_key,
+    aws_secret_access_key=settings.minio_secret_key
 )
 
 @asynccontextmanager
