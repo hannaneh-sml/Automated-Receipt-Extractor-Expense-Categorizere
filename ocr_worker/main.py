@@ -4,6 +4,8 @@ import time
 import easyocr
 import boto3
 from config import settings
+import sys
+sys.stdout.reconfigure(line_buffering=True)
 
 QUEUE_NAME = "ocr_task_queue"
 NEXT_QUEUE = "llm_task_queue"
@@ -34,8 +36,9 @@ def process_and_forward(ch, method, properties, body):
         response = s3_client.get_object(Bucket='receipts', Key=object_name)
         image_bytes = response['Body'].read()
         
+
         print("🔍 Running OCR AI...")
-        results = reader.readtext(image_bytes, detail=0)
+        results = reader.readtext(image_bytes, detail=0, workers=0)
         extracted_text = "\n".join(results)
         
         execution_time = round(time.time() - start_time, 2)
@@ -64,18 +67,19 @@ def process_and_forward(ch, method, properties, body):
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 def start_worker():
-    connection = pika.BlockingConnection(pika.ConnectionParameters(settings.rabbitmq_host))
-    channel = connection.channel()
-    
-    # Ensure queue exists
-    channel.queue_declare(queue=QUEUE_NAME, durable=True)
-    
-    channel.basic_qos(prefetch_count=1)
-    
-    channel.basic_consume(queue=QUEUE_NAME, on_message_callback=process_and_forward)
-    
-    print(f"🎧 RabbitMQ Worker started. Listening to '{QUEUE_NAME}'...")
-    channel.start_consuming()
-
+    print(f"DEBUG: Attempting to connect to RabbitMQ at {settings.rabbitmq_host}...")
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host=settings.rabbitmq_host))
+        print("DEBUG: Connection established!")
+        channel = connection.channel()
+        
+        channel.queue_declare(queue=QUEUE_NAME, durable=True)
+        channel.basic_qos(prefetch_count=1)
+        channel.basic_consume(queue=QUEUE_NAME, on_message_callback=process_and_forward)
+        
+        print(f"🎧 RabbitMQ Worker started. Listening to '{QUEUE_NAME}'...")
+        channel.start_consuming()
+    except Exception as e:
+        print(f"CRITICAL ERROR connecting to RabbitMQ: {e}")
 if __name__ == "__main__":
     start_worker()

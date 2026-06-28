@@ -1,8 +1,9 @@
 import pika
 import json
+from config import settings
 
 def publish_job(job_id: str, object_name: str, user_prompt: str, filename: str):
-    connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host=settings.rabbitmq_host))
     channel = connection.channel()
 
     channel.queue_declare(queue='ocr_task_queue', durable=True)

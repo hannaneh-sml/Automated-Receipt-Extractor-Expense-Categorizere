@@ -1,24 +1,129 @@
 services:
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik_ingress
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:8000"
+    ports:
+      - "8000:8000"    
+      - "8088:8080"     
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - public_net
+
+
+
   rabbitmq:
     image: rabbitmq:3-management
+    container_name: message_broker
     ports:
-      - "${RABBITMQ_PORT}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672"   
+    networks:
+      - gateway_net
+      - ocr_net
+      - ai_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   minio:
     image: minio/minio
-    command: server /data --console-address ":9001"
+    container_name: minio_storage
     ports:
-      - "${MINIO_API_PORT}:9000"
-      - "${MINIO_CONSOLE_PORT}:9001"
+      - "${MINIO_API_PORT}:9000" 
+      - "${MINIO_CONSOLE_PORT}:9001" 
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password123
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+    command: server /data --console-address ":9001"
+    networks:
+      - gateway_net
+      - ocr_net
+
+  gateway_service:
+    build: ./gateway_service
+    container_name: gateway_service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gateway.rule=PathPrefix(\"/\")"
+      - "traefik.http.services.gateway.loadbalancer.server.port=8000" 
+      - "traefik.docker.network=cn-project_public_net"
+    networks:
+      - public_net   
+      - gateway_net  
+      - tracing_net 
+
+  ocr_worker:
+    build: ./ocr_worker
+    container_name: ocr_worker
+    shm_size: '2gb'
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - ocr_net
+      - tracing_net     
     volumes:
-      - minio_data:/data
+      - easyocr_cache:/root/.EasyOCR/model 
+
+  ai_categorizer:
+    build: ./ai_categorizer
+    container_name: ai_categorizer
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - ai_net
+      - tracing_net       
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger_tracing
+    ports:
+      - "16686:16686" 
+    networks:
+      - public_net    
+      - gateway_net   
+      - ocr_net     
+      - ai_net     
+      - tracing_net
+networks:
+  public_net: 
+    driver: bridge
+  gateway_net:
+    driver: bridge
+  ocr_net: 
+    driver: bridge
+  ai_net: 
+    driver: bridge
+  tracing_net:
+    driver: bridge
 
 volumes:
-  rabbitmq_data:
-  minio_data:
+  easyocr_cache:

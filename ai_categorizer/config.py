@@ -4,6 +4,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_key: str
     rabbitmq_host: str = "localhost"
+    groq_api_key: str
 
     class Config:
         env_file = ".env"

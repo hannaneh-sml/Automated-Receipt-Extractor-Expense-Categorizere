@@ -1,11 +1,18 @@
 import json
-import ollama
-from typing import Optional, Dict, Any
 import time
+from typing import Optional, Dict, Any
+from openai import OpenAI
+from config import settings
+
 
 class AgentBrain:
     def __init__(self, db_client):
         self.db = db_client
+        self.client = OpenAI(
+            api_key=settings.groq_api_key,
+            base_url="https://api.avalai.ir/v1"
+        )
+        self.model = "deepseek-v3.2"
 
     def extract_receipt_metadata(self, raw_ocr_text: str) -> Optional[Dict[str, Any]]:
         prompt = f"""
@@ -21,7 +28,7 @@ class AgentBrain:
         3. date: The receipt date converted into YYYY-MM-DD format. If ambiguous, use the best match.
         4. implied_category: Based on the descriptions or merchant, guess a logical expense category (e.g., "Transport", "Groceries", "Utilities", "Maintenance").
 
-        Respond ONLY with a valid JSON block matching this structure. Do not include markdown wraps like ```json.
+        Respond ONLY with a valid JSON block matching this structure:
         {{
             "merchant": string or null,
             "amount": float or null,
@@ -32,12 +39,14 @@ class AgentBrain:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                response = ollama.chat(model='phi3:mini', messages=[{'role': 'user', 'content': prompt}])
-                clean_content = response['message']['content'].strip()
+                # Using Groq's JSON mode guarantees a perfect JSON object response
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{'role': 'user', 'content': prompt}],
+                    response_format={"type": "json_object"} 
+                )
                 
-                if clean_content.startswith("```"):
-                    clean_content = clean_content.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
-                
+                clean_content = response.choices[0].message.content.strip()
                 return json.loads(clean_content)
                 
             except json.JSONDecodeError:
@@ -45,11 +54,11 @@ class AgentBrain:
                 return None 
                 
             except Exception as e:
-                print(f"⚠️ Network/CPU bottleneck (Attempt {attempt + 1}/{max_retries}): Ollama unresponsive. {e}")
+                print(f"⚠️ API Error (Attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(5) 
+                    time.sleep(2) 
                 else:
-                    print("❌ [ABORTED] Ollama failed to recover after multiple attempts.")
+                    print("❌ [ABORTED] Groq API failed to recover.")
                     return None
 
     def infer_category_or_abort(self, merchant: str, user_specified_category: Optional[str], fallback_suggestion: Optional[str]) -> Optional[str]:
@@ -74,12 +83,14 @@ class AgentBrain:
         }}
         """
         try:
-            response = ollama.chat(model='phi3:mini', messages=[{'role': 'user', 'content': prompt}])
-            content = response['message']['content'].strip()
-            if content.startswith("```"):
-                content = content.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
-            
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{'role': 'user', 'content': prompt}],
+                response_format={"type": "json_object"}
+            )
+            content = response.choices[0].message.content.strip()
             result = json.loads(content)
+            
             if result.get("can_determine") and result.get("category"):
                 return result.get("category")
         except Exception as e:
@@ -101,7 +112,11 @@ class AgentBrain:
         Question: {user_question}
         """
         try:
-            response = ollama.chat(model='phi3', messages=[{'role': 'user', 'content': prompt}])
-            return response['message']['content']
+            # We don't use json_object format here because we want a conversational text answer
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{'role': 'user', 'content': prompt}]
+            )
+            return response.choices[0].message.content
         except Exception as e:
             return f"Error executing analysis: {str(e)}"
