@@ -9,13 +9,11 @@ services:
       - "--entrypoints.web.address=:8000"
     ports:
       - "8000:8000"    
-      - "8088:8080"     
+      - "8088:8080"    
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - public_net
-
-
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -51,10 +49,12 @@ services:
     container_name: gateway_service
     environment:
       - RABBITMQ_HOST=rabbitmq
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_SERVICE_NAME=gateway_service
+    command: opentelemetry-instrument uvicorn main:app --host 0.0.0.0 --port 8000
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -62,7 +62,7 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.gateway.rule=PathPrefix(\"/\")"
       - "traefik.http.services.gateway.loadbalancer.server.port=8000" 
-      - "traefik.docker.network=cn-project_public_net"
+      - "traefik.docker.network=public_net"
     networks:
       - public_net   
       - gateway_net  
@@ -74,11 +74,12 @@ services:
     shm_size: '2gb'
     environment:
       - RABBITMQ_HOST=rabbitmq
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_SERVICE_NAME=ocr_worker
+    command: opentelemetry-instrument python main.py
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -93,8 +94,10 @@ services:
     container_name: ai_categorizer
     environment:
       - RABBITMQ_HOST=rabbitmq
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_SERVICE_NAME=ai_categorizer
+    command: opentelemetry-instrument python main.py
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -106,15 +109,15 @@ services:
     image: jaegertracing/all-in-one:latest
     container_name: jaeger_tracing
     ports:
-      - "16686:16686" 
+      - "16686:16686" # Dashboard UI
+      - "4317:4317"   # OTLP gRPC port explicitly open
     networks:
-      - public_net    
-      - gateway_net   
-      - ocr_net     
-      - ai_net     
-      - tracing_net
+      - public_net    # For dashboard access browser-side
+      - tracing_net   # Shared highway for microservice spans
+
 networks:
   public_net: 
+    name: public_net
     driver: bridge
   gateway_net:
     driver: bridge
@@ -127,3 +130,4 @@ networks:
 
 volumes:
   easyocr_cache:
+
