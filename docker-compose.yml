@@ -54,7 +54,7 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - OTEL_SERVICE_NAME=gateway_service
-    command: opentelemetry-instrument uvicorn main:app --host 0.0.0.0 --port 8000
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -79,7 +79,7 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - OTEL_SERVICE_NAME=ocr_worker
-    command: opentelemetry-instrument python main.py
+    command: python main.py
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -97,7 +97,7 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - OTEL_SERVICE_NAME=ai_categorizer
-    command: opentelemetry-instrument python main.py
+    command: python main.py
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -112,8 +112,8 @@ services:
       - "16686:16686" # Dashboard UI
       - "4317:4317"   # OTLP gRPC port explicitly open
     networks:
-      - public_net    # For dashboard access browser-side
-      - tracing_net   # Shared highway for microservice spans
+      - public_net    
+      - tracing_net   
 
 networks:
   public_net: 
@@ -130,4 +130,3 @@ networks:
 
 volumes:
   easyocr_cache:
-

@@ -2,7 +2,7 @@ import pika
 import json
 from config import settings
 
-def publish_job(job_id: str, object_name: str, user_prompt: str, filename: str):
+def publish_job(job_id: str, object_name: str, user_prompt: str, filename: str, headers: dict = None):
     connection = pika.BlockingConnection(pika.ConnectionParameters(host=settings.rabbitmq_host))
     channel = connection.channel()
 
@@ -16,13 +16,13 @@ def publish_job(job_id: str, object_name: str, user_prompt: str, filename: str):
         "status": "QUEUED"
     }
     
-    # 4. Publish the message
     channel.basic_publish(
         exchange='',
         routing_key='ocr_task_queue',
         body=json.dumps(payload),
         properties=pika.BasicProperties(
             delivery_mode=2,  
+            headers=headers or {}
     ))
     
     print(f"✅ Published Job {job_id} to RabbitMQ (Claim Check: {object_name})")
